@@ -44,7 +44,9 @@
 
 **Пример настройки:**
 1. Просто добавь нужные домена в list-general.txt а ip в ipset-названиеТвое.txt
+   
 **ИЛИ**
+
 1. Файл **`domains.txt`** обычно добавляется через параметр: 
    `--list-hostnames=zapret-lists/domains.txt`
 2. Файлы **`ips-tcp.txt`** и **`ips-udp.txt`** добавляются через параметр:
