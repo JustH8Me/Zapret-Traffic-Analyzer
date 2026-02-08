@@ -34,8 +34,7 @@
     <Window.DataContext>
         <vm:MainViewModel/>
     </Window.DataContext>
-
-    <!-- 3. ТЕПЕРЬ РИСУЕМ ИНТЕРФЕЙС, ГДЕ ИСПОЛЬЗУЕМ СТИЛЬ -->
+    
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="200"/>

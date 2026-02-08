@@ -1,11 +1,11 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
-using System.Windows;
-using System.Windows.Data;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Windows;
+using System.Windows.Data;
 using ZapretTraficAnalyz.Models;
 using ZapretTraficAnalyz.Services;
 
@@ -17,61 +17,34 @@ public partial class TraficAnalyzViewModel : ObservableObject
     private readonly object _lock = new();
 
     [ObservableProperty] private bool _isScanning;
-    [ObservableProperty] private string _targetProcess = "discord.exe";
+    [ObservableProperty] private string _targetProcess = "discord.exe"; 
     [ObservableProperty] private string _scanButtonText = "СТАРТ";
     [ObservableProperty] private string _statusText = "Ожидание...";
     [ObservableProperty] private bool _isAllSelected;
 
     public ObservableCollection<TrafficItem> Items { get; } = [];
-    [RelayCommand]
-    private void ToggleAllSelection()
-    {
-        foreach (var item in Items)
-        {
-            item.IsSelected = IsAllSelected;
-        }
-    }
+
     public TraficAnalyzViewModel()
     {
         BindingOperations.EnableCollectionSynchronization(Items, _lock);
-        _service.TrafficDetected += item => {
-            lock (_lock) 
-                if (!Items.Any(x => x.RemoteIP == item.RemoteIP && x.Protocol == item.Protocol)) 
-                    Items.Add(item);
-        };
+        _service.TrafficDetected += OnTrafficDetected;
     }
 
-    [RelayCommand]
-    private async Task CheckAccess()
+    private void OnTrafficDetected(TrafficItem newItem)
     {
-        var selected = Items.Where(x => x.IsSelected).ToList();
-        if (!selected.Any()) return;
-
-        StatusText = "Проверка связи...";
-        foreach (var item in selected)
+        lock (_lock)
         {
-            item.Status = "⏳...";
-            var (ok, _) = await NetworkChecker.CheckAsync(item.RemoteIP, item.Domain, item.Protocol);
-            item.Status = ok ? "ДОСТУПЕН" : "БЛОК ⛔";
-            item.StatusColor = ok ? "Green" : "Red";
-        }
-        StatusText = "Готово";
-    }
+            var existing = Items.FirstOrDefault(x => x.RemoteIP == newItem.RemoteIP && x.Protocol == newItem.Protocol);
 
-    [RelayCommand]
-    private async Task ResolveNames()
-    {
-        var targets = Items.Where(x => x.Domain == "---").ToList();
-        StatusText = "Поиск имен...";
-        
-        await Task.WhenAll(targets.Select(async item => {
-            try {
-                var entry = await Dns.GetHostEntryAsync(item.RemoteIP);
-                if (!string.IsNullOrEmpty(entry.HostName))
-                    Application.Current.Dispatcher.Invoke(() => item.Domain = entry.HostName);
-            } catch { /* ignored */ }
-        }));
-        StatusText = "Имена обновлены";
+            if (existing == null)
+            {
+                Application.Current.Dispatcher.Invoke(() => Items.Add(newItem));
+            }
+            else if (existing.Domain == "---" && newItem.Domain != "---")
+            {
+                existing.Domain = newItem.Domain;
+            }
+        }
     }
 
     [RelayCommand]
@@ -79,51 +52,101 @@ public partial class TraficAnalyzViewModel : ObservableObject
     {
         if (!IsScanning)
         {
-            var pids = Process.GetProcessesByName(TargetProcess.Replace(".exe", "")).Select(p => p.Id).ToList();
-            if (!pids.Any()) { MessageBox.Show("Процесс не найден!"); return; }
+            var procName = TargetProcess.Replace(".exe", "", StringComparison.OrdinalIgnoreCase);
+            var pids = Process.GetProcessesByName(procName).Select(p => p.Id).ToList();
 
-            Process.Start(new ProcessStartInfo("ipconfig", "/flushdns") { CreateNoWindow = true })?.WaitForExit();
-            
+            if (pids.Count == 0)
+            {
+                MessageBox.Show($"Процесс {procName} не найден!");
+                return;
+            }
+
+            // Очистка DNS
+            try { Process.Start(new ProcessStartInfo("ipconfig", "/flushdns") { CreateNoWindow = true }); } catch { }
+
             Items.Clear();
-            _service.Start(pids, TargetProcess);
-            (IsScanning, ScanButtonText, StatusText) = (true, "СТОП", "СКАНИРОВАНИЕ...");
+            _service.Start(TargetProcess);
+            
+            IsScanning = true;
+            ScanButtonText = "СТОП";
+            StatusText = $"Сканирую {procName} ({pids.Count} PID)...";
         }
         else
         {
             _service.Stop();
-            (IsScanning, ScanButtonText, StatusText) = (false, "СТАРТ", "Остановлено");
+            IsScanning = false;
+            ScanButtonText = "СТАРТ";
+            StatusText = "Остановлено";
         }
+    }
+    
+    [RelayCommand]
+    private void ToggleAllSelection() { foreach(var i in Items) i.IsSelected = IsAllSelected; }
+
+    [RelayCommand]
+    private async Task CheckAccess()
+    {
+        var list = Items.Where(x => x.IsSelected).ToList();
+        if(!list.Any()) return;
+        StatusText = "Проверка...";
+        await Parallel.ForEachAsync(list, async (item, token) => {
+             item.Status = "⏳";
+             var (ok, _) = await NetworkChecker.CheckAsync(item.RemoteIP, item.Domain, item.Protocol);
+             item.Status = ok ? "ДОСТУПЕН" : "БЛОК ⛔";
+             item.StatusColor = ok ? "Green" : "Red";
+        });
+        StatusText = "Готово";
     }
 
     [RelayCommand]
-    private void SaveToZapret()
+    private async Task ResolveNames()
     {
-        var sel = Items.Where(x => x.IsSelected).ToList();
-        if (!sel.Any()) return;
+        var list = Items.Where(x => x.Domain == "---").ToList();
+        StatusText = "Поиск имен...";
+        await Task.WhenAll(list.Select(async item => {
+            try {
+                var e = await Dns.GetHostEntryAsync(item.RemoteIP);
+                if(!string.IsNullOrEmpty(e.HostName)) 
+                    Application.Current.Dispatcher.Invoke(() => item.Domain = e.HostName);
+            } catch { }
+        }));
+        StatusText = "Имена обновлены";
+    }
 
+    [RelayCommand]
+    private void Save(string mode)
+    {
+        var list = mode switch
+        {
+            "All" => Items.ToList(),                                         
+            "Blocked" => Items.Where(x => x.StatusColor == "Red").ToList(),  
+            "Ok" => Items.Where(x => x.StatusColor == "Green").ToList(),     
+            _ => Items.Where(x => x.IsSelected).ToList()                     
+        };
+
+        if (list.Count == 0)
+        {
+            MessageBox.Show($"В категории '{mode}' пусто!");
+            return;
+        }
+        
         var path = "zapret-lists";
         Directory.CreateDirectory(path);
 
-        // (1.2.3.4 -> 1.2.3.0/24)
-        string ToSubnet(string ip) {
-            var parts = ip.Split('.');
-            if (parts.Length != 4) return ip;
-            return $"{parts[0]}.{parts[1]}.{parts[2]}.0/24";
+        string ToSubnet(string ip) 
+        {
+            var p = ip.Split('.');
+            return p.Length == 4 ? $"{p[0]}.{p[1]}.{p[2]}.0/24" : ip;
         }
-        
-        var domains = sel.Where(x => x.Domain != "---").Select(x => x.Domain).Distinct();
+
+        var domains = list.Where(x => x.Domain != "---").Select(x => x.Domain).Distinct();
+        var tcp = list.Where(x => x.Domain == "---" && x.Protocol == "TCP").Select(x => ToSubnet(x.RemoteIP)).Distinct();
+        var udp = list.Where(x => x.Domain == "---" && x.Protocol == "UDP").Select(x => ToSubnet(x.RemoteIP)).Distinct();
+
         File.WriteAllLines($"{path}/domains.txt", domains);
-        
-        var tcpSubnets = sel.Where(x => x.Domain == "---" && x.Protocol == "TCP")
-            .Select(x => ToSubnet(x.RemoteIP))
-            .Distinct();
-        File.WriteAllLines($"{path}/ips-tcp.txt", tcpSubnets);
+        File.WriteAllLines($"{path}/ips-tcp.txt", tcp);
+        File.WriteAllLines($"{path}/ips-udp.txt", udp);
 
-        var udpSubnets = sel.Where(x => x.Domain == "---" && x.Protocol == "UDP")
-            .Select(x => ToSubnet(x.RemoteIP))
-            .Distinct();
-        File.WriteAllLines($"{path}/ips-udp.txt", udpSubnets);
-
-        MessageBox.Show($"Списки сохранены!\nTCP подсетей: {tcpSubnets.Count()}\nUDP подсетей: {udpSubnets.Count()}");
+        MessageBox.Show($"Сохранено ({mode}):\nDomains: {domains.Count()}\nTCP: {tcp.Count()}\nUDP: {udp.Count()}");
     }
 }

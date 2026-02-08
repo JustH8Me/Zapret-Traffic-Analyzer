@@ -28,9 +28,29 @@
                 <TextBox Text="{Binding TargetProcess}" Width="120" VerticalContentAlignment="Center"/>
 
                 <Button Content="{Binding ScanButtonText}" Command="{Binding ToggleScanCommand}" Background="#007ACC"/>
-                <Button Content="СОХРАНИТЬ" Command="{Binding SaveToZapretCommand}" Background="#28A745"/>
+
+                <Button Content="СОХРАНИТЬ ⏷" 
+                        Command="{Binding SaveCommand}" 
+                        CommandParameter="Selected"
+                        Background="#28A745"
+                        ToolTip="ЛКМ: Сохранить выбранные&#x0a;ПКМ: Выбрать режим">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="💾 Только отмеченные галочкой" 
+                                      Command="{Binding SaveCommand}" CommandParameter="Selected" FontWeight="Bold"/>
+                            <Separator/>
+                            <MenuItem Header="⛔ Только ЗАБЛОКИРОВАННЫЕ (Красные)" 
+                                      Command="{Binding SaveCommand}" CommandParameter="Blocked" Foreground="Red"/>
+                            <MenuItem Header="✅ Только ДОСТУПНЫЕ (Зеленые)" 
+                                      Command="{Binding SaveCommand}" CommandParameter="Ok" Foreground="Green"/>
+                            <Separator/>
+                            <MenuItem Header="🌍 Вообще все из списка" 
+                                      Command="{Binding SaveCommand}" CommandParameter="All"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
                 <Button Content="ПРОВЕРИТЬ" Command="{Binding CheckAccessCommand}" Background="Orange"/>
-                <Button Content="ИМЕНА" Command="{Binding ResolveNamesCommand}" Background="#607D8B"/>
+                <Button Content="ДОМЕНА" Command="{Binding ResolveNamesCommand}" Background="#607D8B"/>
                 
                 <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Margin="15,0" Foreground="Gray"/>
             </StackPanel>
@@ -40,15 +60,14 @@
                   AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
                   GridLinesVisibility="Horizontal" Background="White">
             <DataGrid.Columns>
-                <!-- Колонка с чекбоксом -->
+
                 <DataGridCheckBoxColumn Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="False" Width="40">
                     <DataGridCheckBoxColumn.Header>
                         <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}" 
                                   Command="{Binding DataContext.ToggleAllSelectionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
                     </DataGridCheckBoxColumn.Header>
                 </DataGridCheckBoxColumn>
-
-                <!-- Статус с привязкой цвета -->
+                
                 <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="100" FontWeight="Bold">
                     <DataGridTextColumn.ElementStyle>
                         <Style TargetType="TextBlock">
@@ -56,8 +75,7 @@
                         </Style>
                     </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
-
-                <!-- Остальные данные -->
+                
                 <DataGridTextColumn Header="Время" Binding="{Binding Time}" Width="65"/>
                 <DataGridTextColumn Header="Тип" Binding="{Binding Protocol}" FontWeight="Bold" Width="50"/>
                 <DataGridTextColumn Header="Домен" Binding="{Binding Domain}" Width="*" FontWeight="Bold"/>
