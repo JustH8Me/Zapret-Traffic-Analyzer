@@ -1,0 +1,68 @@
+﻿<UserControl x:Class="ZapretTraficAnalyz.Views.TraficAnalyzView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="850" d:DesignHeight="450">
+
+    <UserControl.Resources>
+        
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,5"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="#F0F0F0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Background="White" Padding="10" Margin="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Процесс:" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,5,0"/>
+                <TextBox Text="{Binding TargetProcess}" Width="120" VerticalContentAlignment="Center"/>
+
+                <Button Content="{Binding ScanButtonText}" Command="{Binding ToggleScanCommand}" Background="#007ACC"/>
+                <Button Content="СОХРАНИТЬ" Command="{Binding SaveToZapretCommand}" Background="#28A745"/>
+                <Button Content="ПРОВЕРИТЬ" Command="{Binding CheckAccessCommand}" Background="Orange"/>
+                <Button Content="ИМЕНА" Command="{Binding ResolveNamesCommand}" Background="#607D8B"/>
+                
+                <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Margin="15,0" Foreground="Gray"/>
+            </StackPanel>
+        </Border>
+
+        <DataGrid Grid.Row="1" ItemsSource="{Binding Items}" Margin="10" 
+                  AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                  GridLinesVisibility="Horizontal" Background="White">
+            <DataGrid.Columns>
+                <!-- Колонка с чекбоксом -->
+                <DataGridCheckBoxColumn Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="False" Width="40">
+                    <DataGridCheckBoxColumn.Header>
+                        <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}" 
+                                  Command="{Binding DataContext.ToggleAllSelectionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+                    </DataGridCheckBoxColumn.Header>
+                </DataGridCheckBoxColumn>
+
+                <!-- Статус с привязкой цвета -->
+                <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="100" FontWeight="Bold">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{Binding StatusColor}"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+
+                <!-- Остальные данные -->
+                <DataGridTextColumn Header="Время" Binding="{Binding Time}" Width="65"/>
+                <DataGridTextColumn Header="Тип" Binding="{Binding Protocol}" FontWeight="Bold" Width="50"/>
+                <DataGridTextColumn Header="Домен" Binding="{Binding Domain}" Width="*" FontWeight="Bold"/>
+                <DataGridTextColumn Header="IP" Binding="{Binding RemoteIP}" Width="125"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>
