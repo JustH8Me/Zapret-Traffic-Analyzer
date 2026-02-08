@@ -57,30 +57,37 @@
         </Border>
 
         <DataGrid Grid.Row="1" ItemsSource="{Binding Items}" Margin="10" 
-                  AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
-                  GridLinesVisibility="Horizontal" Background="White">
-            <DataGrid.Columns>
+          AutoGenerateColumns="False" CanUserAddRows="False" 
+          GridLinesVisibility="Horizontal" Background="White">
+    <DataGrid.Columns>
+        
+        <DataGridTemplateColumn Width="40">
+            <DataGridTemplateColumn.Header>
+                <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}" 
+                          Command="{Binding DataContext.ToggleAllSelectionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
+            </DataGridTemplateColumn.Header>
+            <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                    <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" 
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        
+        <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="100" IsReadOnly="True" FontWeight="Bold">
+            <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{Binding StatusColor}"/>
+                </Style>
+            </DataGridTextColumn.ElementStyle>
+        </DataGridTextColumn>
 
-                <DataGridCheckBoxColumn Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="False" Width="40">
-                    <DataGridCheckBoxColumn.Header>
-                        <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}" 
-                                  Command="{Binding DataContext.ToggleAllSelectionCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"/>
-                    </DataGridCheckBoxColumn.Header>
-                </DataGridCheckBoxColumn>
-                
-                <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="100" FontWeight="Bold">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{Binding StatusColor}"/>
-                        </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-                
-                <DataGridTextColumn Header="Время" Binding="{Binding Time}" Width="65"/>
-                <DataGridTextColumn Header="Тип" Binding="{Binding Protocol}" FontWeight="Bold" Width="50"/>
-                <DataGridTextColumn Header="Домен" Binding="{Binding Domain}" Width="*" FontWeight="Bold"/>
-                <DataGridTextColumn Header="IP" Binding="{Binding RemoteIP}" Width="125"/>
-            </DataGrid.Columns>
-        </DataGrid>
+        <DataGridTextColumn Header="Время" Binding="{Binding Time}" Width="65" IsReadOnly="True"/>
+        <DataGridTextColumn Header="Тип" Binding="{Binding Protocol}" FontWeight="Bold" Width="50" IsReadOnly="True"/>
+        <DataGridTextColumn Header="Домен" Binding="{Binding Domain}" Width="*" FontWeight="Bold" IsReadOnly="True"/>
+        <DataGridTextColumn Header="IP" Binding="{Binding RemoteIP}" Width="125" IsReadOnly="True"/>
+        
+    </DataGrid.Columns>
+</DataGrid>
     </Grid>
 </UserControl>
