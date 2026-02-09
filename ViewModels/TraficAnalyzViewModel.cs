@@ -1,11 +1,8 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
-using System.Collections.ObjectModel;
-using System.Diagnostics;
-using System.IO;
-using System.Net;
-using System.Windows;
+﻿using System.Collections.ObjectModel;
 using System.Windows.Data;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using ZapretTraficAnalyz.Interfaces;
 using ZapretTraficAnalyz.Models;
 using ZapretTraficAnalyz.Services;
 
@@ -13,103 +10,196 @@ namespace ZapretTraficAnalyz.ViewModels;
 
 public partial class TraficAnalyzViewModel : ObservableObject
 {
-    private readonly SearchIp _service = new();
-    private readonly object _lock = new();
+    private readonly IDialogService _dialogService;
+    private readonly IDispatcherService _dispatcher;
+    private readonly IDnsService _dnsService;
+    private readonly IFileScannerService _fileScannerService;
+    private readonly IGeoIpService _geoIpService;
 
-    [ObservableProperty] private bool _isScanning;
-    [ObservableProperty] private string _targetProcess = "discord.exe"; 
-    [ObservableProperty] private string _scanButtonText = "СТАРТ";
-    [ObservableProperty] private string _statusText = "Ожидание...";
+    private readonly INetworkCheckerService _networkChecker;
+    private readonly IReportService _reportService;
+    private readonly ISnifferService _snifferService;
+    private readonly object _lock = new();
     [ObservableProperty] private bool _isAllSelected;
 
-    public ObservableCollection<TrafficItem> Items { get; } = [];
 
-    public TraficAnalyzViewModel()
+    [ObservableProperty] private bool _isScanning;
+    [ObservableProperty] private string _scanButtonText = "СТАРТ";
+    [ObservableProperty] private string _statusText = "Готов к работе";
+    [ObservableProperty] private string _targetProcess = "r5apex.exe";
+
+
+    public TraficAnalyzViewModel(
+        ISnifferService snifferService,
+        IFileScannerService fileScannerService,
+        IGeoIpService geoIpService,
+        IDnsService dnsService,
+        INetworkCheckerService networkChecker,
+        IDialogService dialogService,
+        IReportService reportService,
+        IDispatcherService dispatcher)
     {
+        _snifferService = snifferService;
+        _fileScannerService = fileScannerService;
+        _geoIpService = geoIpService;
+        _dnsService = dnsService;
+        _networkChecker = networkChecker;
+        _dialogService = dialogService;
+        _reportService = reportService;
+        _dispatcher = dispatcher;
         BindingOperations.EnableCollectionSynchronization(Items, _lock);
-        _service.TrafficDetected += OnTrafficDetected;
+
+        SubscribeEvents();
     }
 
-    private void OnTrafficDetected(TrafficItem newItem)
-    {
-        lock (_lock)
-        {
-            var existing = Items.FirstOrDefault(x => x.RemoteIP == newItem.RemoteIP && x.Protocol == newItem.Protocol);
+    public ObservableCollection<TrafficItem> Items { get; } = new();
 
-            if (existing == null)
+    private void SubscribeEvents()
+    {
+        _snifferService.TrafficDetected += newItem =>
+        {
+            lock (_lock)
             {
-                Application.Current.Dispatcher.Invoke(() => Items.Add(newItem));
+                var existing =
+                    Items.FirstOrDefault(x => x.RemoteIP == newItem.RemoteIP && x.Protocol == newItem.Protocol);
+
+                if (existing == null)
+                {
+                    newItem.TrafficType = AnalyzHeuristics.Analyze(newItem);
+
+                    _dispatcher.Invoke(() => Items.Add(newItem));
+
+                    _ = EnrichItemAsync(newItem);
+                }
+                else
+                {
+                    existing.PacketCount++;
+                    existing.Time = DateTime.Now.ToString("HH:mm:ss");
+
+                    if (existing.Domain == "---" && newItem.Domain != "---")
+                    {
+                        existing.Domain = newItem.Domain;
+
+                        existing.TrafficType = AnalyzHeuristics.Analyze(existing);
+                    }
+                }
             }
-            else if (existing.Domain == "---" && newItem.Domain != "---")
+        };
+
+
+        _fileScannerService.ItemFound += item => _dispatcher.Invoke(() =>
+        {
+            lock (_lock)
             {
-                existing.Domain = newItem.Domain;
+                Items.Add(item);
             }
-        }
+        });
+
+        _fileScannerService.StatusUpdated += status => _dispatcher.Invoke(() => StatusText = status);
+    }
+
+    private async Task EnrichItemAsync(TrafficItem item)
+    {
+        await _geoIpService.EnrichWithGeoDataAsync(item);
+        _dispatcher.Invoke(() => item.TrafficType = AnalyzHeuristics.Analyze(item));
     }
 
     [RelayCommand]
     private void ToggleScan()
     {
+        if (string.IsNullOrWhiteSpace(TargetProcess))
+        {
+            _dialogService.ShowMessage("Укажите имя процесса!");
+            return;
+        }
+
         if (!IsScanning)
         {
-            var procName = TargetProcess.Replace(".exe", "", StringComparison.OrdinalIgnoreCase);
-            var pids = Process.GetProcessesByName(procName).Select(p => p.Id).ToList();
-
-            if (pids.Count == 0)
+            lock (_lock)
             {
-                MessageBox.Show($"Процесс {procName} не найден!");
-                return;
+                var toRemove = Items.Where(x => x.Status != "Files" && x.Status != "Cached").ToList();
+                foreach (var item in toRemove) Items.Remove(item);
             }
 
-            // Очистка DNS
-            try { Process.Start(new ProcessStartInfo("ipconfig", "/flushdns") { CreateNoWindow = true }); } catch { }
-
-            Items.Clear();
-            _service.Start(TargetProcess);
-            
+            _snifferService.Start(TargetProcess);
             IsScanning = true;
             ScanButtonText = "СТОП";
-            StatusText = $"Сканирую {procName} ({pids.Count} PID)...";
+            StatusText = $"Сниффинг: {TargetProcess}";
         }
         else
         {
-            _service.Stop();
+            _snifferService.Stop();
             IsScanning = false;
             ScanButtonText = "СТАРТ";
             StatusText = "Остановлено";
         }
     }
-    
+
     [RelayCommand]
-    private void ToggleAllSelection() { foreach(var i in Items) i.IsSelected = IsAllSelected; }
+    private async Task StaticScan()
+    {
+        var folder = await _dialogService.PickFolderAsync();
+        if (string.IsNullOrEmpty(folder)) return;
+
+        lock (_lock)
+        {
+            var fileItems = Items.Where(x => x.Status == "Files").ToList();
+            foreach (var item in fileItems) Items.Remove(item);
+        }
+
+        await _fileScannerService.RunScanAsync(folder);
+    }
+
+    [RelayCommand]
+    private async Task LoadDnsCache()
+    {
+        StatusText = "Загрузка DNS кэша...";
+        var cacheItems = await _dnsService.GetDnsCacheAsync();
+        _dispatcher.Invoke(() =>
+        {
+            foreach (var item in cacheItems)
+                if (!Items.Any(x => x.Domain == item.Domain))
+                    Items.Add(item);
+            StatusText = $"DNS Кэш: {cacheItems.Count} записей";
+        });
+    }
 
     [RelayCommand]
     private async Task CheckAccess()
     {
-        var list = Items.Where(x => x.IsSelected).ToList();
-        if(!list.Any()) return;
-        StatusText = "Проверка...";
-        await Parallel.ForEachAsync(list, async (item, token) => {
-             item.Status = "⏳";
-             var (ok, _) = await NetworkChecker.CheckAsync(item.RemoteIP, item.Domain, item.Protocol);
-             item.Status = ok ? "ДОСТУПЕН" : "БЛОК ⛔";
-             item.StatusColor = ok ? "Green" : "Red";
+        var list = Items.Where(x => x.RemoteIP != "FILE" && x.RemoteIP != "DNS Cache").ToList();
+        if (!list.Any()) return;
+
+        StatusText = $"Проверка {list.Count} адресов...";
+
+        await Parallel.ForEachAsync(list, new ParallelOptions { MaxDegreeOfParallelism = 10 }, async (item, token) =>
+        {
+            _dispatcher.Invoke(() => item.Status = "Checking...");
+
+            var result = await _networkChecker.CheckAccessAsync(item.RemoteIP, item.Domain, item.Protocol);
+
+            _dispatcher.Invoke(() =>
+            {
+                item.Status = result.IsAccessible ? "Access OK" : "BLOCKED";
+                item.StatusColor = result.IsAccessible ? "#2ECC71" : "#E74C3C";
+            });
         });
-        StatusText = "Готово";
+
+        StatusText = "Проверка завершена";
     }
 
     [RelayCommand]
     private async Task ResolveNames()
     {
-        var list = Items.Where(x => x.Domain == "---").ToList();
-        StatusText = "Поиск имен...";
-        await Task.WhenAll(list.Select(async item => {
-            try {
-                var e = await Dns.GetHostEntryAsync(item.RemoteIP);
-                if(!string.IsNullOrEmpty(e.HostName)) 
-                    Application.Current.Dispatcher.Invoke(() => item.Domain = e.HostName);
-            } catch { }
-        }));
+        var list = Items.Where(x => x.Domain == "---" && x.RemoteIP.Contains(".")).ToList();
+        StatusText = "Resolving DNS...";
+
+        await Parallel.ForEachAsync(list, new ParallelOptions { MaxDegreeOfParallelism = 5 }, async (item, _) =>
+        {
+            var host = await _dnsService.ResolveHostNameAsync(item.RemoteIP);
+            if (!string.IsNullOrEmpty(host))
+                _dispatcher.Invoke(() => item.Domain = host);
+        });
         StatusText = "Имена обновлены";
     }
 
@@ -118,35 +208,25 @@ public partial class TraficAnalyzViewModel : ObservableObject
     {
         var list = mode switch
         {
-            "All" => Items.ToList(),                                         
-            "Blocked" => Items.Where(x => x.StatusColor == "Red").ToList(),  
-            "Ok" => Items.Where(x => x.StatusColor == "Green").ToList(),     
-            _ => Items.Where(x => x.IsSelected).ToList()                     
+            "All" => Items,
+            "Blocked" => Items.Where(x => x.StatusColor == "#E74C3C"),
+            "Ok" => Items.Where(x => x.StatusColor == "#2ECC71"),
+            _ => Items.Where(x => x.IsSelected)
         };
 
-        if (list.Count == 0)
+        if (!list.Any())
         {
-            MessageBox.Show($"В категории '{mode}' пусто!");
+            _dialogService.ShowMessage("Список пуст!");
             return;
         }
-        
-        var path = "zapret-lists";
-        Directory.CreateDirectory(path);
 
-        string ToSubnet(string ip) 
-        {
-            var p = ip.Split('.');
-            return p.Length == 4 ? $"{p[0]}.{p[1]}.{p[2]}.0/24" : ip;
-        }
+        _reportService.SaveReport(list, mode);
+        _dialogService.ShowMessage("Сохранено!");
+    }
 
-        var domains = list.Where(x => x.Domain != "---").Select(x => x.Domain).Distinct();
-        var tcp = list.Where(x => x.Domain == "---" && x.Protocol == "TCP").Select(x => ToSubnet(x.RemoteIP)).Distinct();
-        var udp = list.Where(x => x.Domain == "---" && x.Protocol == "UDP").Select(x => ToSubnet(x.RemoteIP)).Distinct();
-
-        File.WriteAllLines($"{path}/domains.txt", domains);
-        File.WriteAllLines($"{path}/ips-tcp.txt", tcp);
-        File.WriteAllLines($"{path}/ips-udp.txt", udp);
-
-        MessageBox.Show($"Сохранено ({mode}):\nDomains: {domains.Count()}\nTCP: {tcp.Count()}\nUDP: {udp.Count()}");
+    [RelayCommand]
+    private void ToggleAllSelection()
+    {
+        foreach (var i in Items) i.IsSelected = IsAllSelected;
     }
 }

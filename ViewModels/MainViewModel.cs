@@ -1,25 +1,31 @@
-﻿using System.Windows.Input;
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace ZapretTraficAnalyz.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
-    [ObservableProperty]
-    private object _currentView;
+    private readonly GenCfgViewModel _genCfgViewModel;
+    private readonly TraficAnalyzViewModel _traficAnalyzViewModel;
 
-    private GenCfgViewModel _genCfgViewModel =  new GenCfgViewModel();
-    private TraficAnalyzViewModel _traficAnalyzViewModel =  new TraficAnalyzViewModel();
-    public MainViewModel()
+    [ObservableProperty] private object _currentView;
+
+    public MainViewModel(TraficAnalyzViewModel traficAnalyzViewModel, GenCfgViewModel genCfgViewModel)
     {
-
-    
-        CurrentView  = new TraficAnalyzViewModel();
+        _traficAnalyzViewModel = traficAnalyzViewModel;
+        _genCfgViewModel = genCfgViewModel;
+        CurrentView = _traficAnalyzViewModel;
     }
+
     [RelayCommand]
-    private void GoToScann() => CurrentView = _traficAnalyzViewModel;
-    
+    private void GoToScann()
+    {
+        CurrentView = _traficAnalyzViewModel;
+    }
+
     [RelayCommand]
-    private void GoToGen() => CurrentView = _genCfgViewModel;
+    private void GoToGen()
+    {
+        CurrentView = _genCfgViewModel;
+    }
 }

@@ -1,40 +1,53 @@
 ﻿using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using ZapretTraficAnalyz.Interfaces;
 
 namespace ZapretTraficAnalyz.Services;
 
-public static class NetworkChecker
+public class NetworkCheckerService : INetworkCheckerService
 {
-    public static async Task<(bool ok, string msg)> CheckAsync(string ip, string domain, string proto)
+    public async Task<(bool IsAccessible, string Error)> CheckAccessAsync(string ip, string domain, string protocol)
     {
         try
         {
-            //Если есть домен HTTPS (443)
-            if (domain != "---")
+            if (!string.IsNullOrWhiteSpace(domain) && domain != "---")
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                var res = await client.GetAsync($"https://{domain}", HttpCompletionOption.ResponseHeadersRead);
-                return (true, "OK");
+                var handler = new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+                };
+
+                using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(2) };
+                await client.GetAsync($"https://{domain}", HttpCompletionOption.ResponseHeadersRead);
+                return (true, "HTTPS OK");
             }
 
-            //  Если UDP  пинг
-            if (proto == "UDP")
+            if (protocol != null && protocol.Contains("UDP"))
             {
                 using var ping = new Ping();
                 var reply = await ping.SendPingAsync(ip, 1500);
-                return (reply.Status == IPStatus.Success, "Ping");
+
+                if (reply.Status == IPStatus.Success)
+                    return (true, $"Ping {reply.RoundtripTime}ms");
+
+                return (false, $"Ping {reply.Status}");
             }
 
-            // Если TCP IP соединение
             using var tcp = new TcpClient();
             using var cts = new CancellationTokenSource(1500);
+
             await tcp.ConnectAsync(ip, 443).WaitAsync(cts.Token);
-            return (true, "TCP OK");
+
+            return (true, "TCP Connect OK");
         }
-        catch
+        catch (OperationCanceledException)
         {
-            return (false, "Fail");
+            return (false, "Timeout");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.InnerException?.Message ?? ex.Message);
         }
     }
 }
